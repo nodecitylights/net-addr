@@ -1,4 +1,5 @@
 import type { IpAddrValue } from './ip.ts'
+import { Ipv4Addr } from './ipv4.ts'
 import { arrayStartsWith, isValidUint128, isValidUint16 } from '../utils.ts'
 
 /**
@@ -229,7 +230,7 @@ export class Ipv6Addr implements IpAddrValue {
 	 * (via `bigint`).
 	 */
 	public toUint128(): bigint {
-		return uint128FromArray(this._segments)
+		return uint16ArrayToUint128(this._segments)
 	}
 
 	/**
@@ -349,8 +350,8 @@ export class Ipv6Addr implements IpAddrValue {
 			|| this.isDiscardOnly()
 			|| (
 				(this.a === 0x2001 && this.b < 0x200) && !(
-					uint128FromArray(this._segments) === BigInt("0x20010001000000000000000000000001")
-					|| uint128FromArray(this._segments) === BigInt("0x20010001000000000000000000000002")
+					uint16ArrayToUint128(this._segments) === BigInt("0x20010001000000000000000000000001")
+					|| uint16ArrayToUint128(this._segments) === BigInt("0x20010001000000000000000000000002")
 					|| arrayStartsWith(this._segments, new Uint16Array([0x2001, 0x3]))
 					|| arrayStartsWith(this._segments, new Uint16Array([0x2001, 4, 0x112]))
 					|| (this.a === 0x2001 && (this.b >= 0x10 && this.b <= 0x3f))
@@ -513,6 +514,30 @@ export class Ipv6Addr implements IpAddrValue {
 				return null
 		}
 	}
+
+	public toIpv4(): Ipv4Addr | null {
+		const segments = this.segments()
+		if (
+			arrayStartsWith(segments, [0, 0, 0, 0, 0]) &&
+			(segments[5] === 0 || segments[5] === 0xffff)
+		) {
+			const [a, b] = uint16ToUint8Array(segments[6])
+			const [c, d] = uint16ToUint8Array(segments[7])
+			return Ipv4Addr.tryFromUint8Array(new Uint8Array([a, b, c, d]))
+		}
+
+		return null
+	}
+
+	public toIpv4Mapped(): Ipv4Addr | null {
+		const octets = this.octets()
+		const mapped = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff]
+		if (!arrayStartsWith(octets, mapped)) {
+			return null
+		}
+
+		return Ipv4Addr.tryNew(octets[12], octets[13], octets[14], octets[15])
+	}
 }
 
 /**
@@ -531,10 +556,16 @@ export type MulticastScope =
 	| 'OrganizationLocal'
 	| 'Global'
 
-function uint128FromArray(array: Uint16Array): bigint {
+function uint16ArrayToUint128(array: Uint16Array): bigint {
 	let result = BigInt(0)
 	for (let i = 0; i < array.length; i++) {
 		result = (result << BigInt(16)) | BigInt(array[i])
 	}
 	return result
+}
+
+function uint16ToUint8Array(value: number): Uint8Array {
+	const lowByte = value & 0xff
+	const highByte = (value >> 8) & 0xff
+	return new Uint8Array([lowByte, highByte])
 }
